@@ -390,10 +390,11 @@ async def handler(event):
 
 # ================== MAIN ==================
 
+print("🚀 MAIN STARTED")
 async def main():
 
     await client.start()
-
+    print("✅ TELETHON CONNECTED")
     print("🔄 Loading sources...")
 
     for chat_id in SOURCE_CHATS:
@@ -534,7 +535,7 @@ async def main():
 if __name__ == "__main__":
 
     try:
-        asyncio.run(main())
+        loop.run_until_complete(main())
 
     except KeyboardInterrupt:
         print("⚠️ Stopped")
