@@ -58,7 +58,7 @@ client = TelegramClient(
 
 # ================== CONFIG ==================
 
-SOURCES_FILE = "home/sources.json"
+SOURCES_FILE = "sources.json"
 
 SOURCE_CHATS = [
     -1003550975849,
