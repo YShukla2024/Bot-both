@@ -315,13 +315,19 @@ def parse_signal(text: str) -> dict:
     # ================== TP ==================
 
     tp_matches = re.findall(
-        r'\bTP\s*\d*\s*[:\-\.\s_]\s*([\d]+(?:\.\d+)?)',
-        upper
+        r'TP[¹²³123]?\s*[:\-]?\s*(\d+(?:\.\d+)?)',
+        text,
+        re.IGNORECASE
     )
+
+    unique_tps = []
+    for tp in tp_matches:
+        if tp not in unique_tps:
+            unique_tps.append(tp)
 
     result["tp"] = [
         float(tp)
-        for tp in tp_matches
+        for tp in unique_tps
     ]
 
     # ================== SL ==================
@@ -374,28 +380,35 @@ def format_signal(
         except:
             sl = None
 
-    first_tp = (
-        clean_number(tp_list[0])
-        if tp_list else "N/A"
-    )
+    formatted_tp = ""
+
+    if tp_list:
+        unique_tps = []
+        for tp in tp_list:
+            tp_str = clean_number(tp)
+            if tp_str not in unique_tps:
+                unique_tps.append(tp_str)
+
+        for i, tp in enumerate(unique_tps, start=1):
+            formatted_tp += f"\nTP{i}: {tp}"
+    else:
+        formatted_tp = "\nTP: N/A"
 
     sl_str = (
         clean_number(sl)
         if sl else "N/A"
     )
 
-    lines = [
+    final_message = (
         f"{direction} {symbol} {entry or 'N/A'}"
-    ]
-
-    lines.append(f"TP {first_tp}")
-
-    lines.append(f"SL {sl_str}")
+        f"{formatted_tp}"
+        f"\nSL: {sl_str}"
+    )
 
     if source:
-        lines.append(f"Source: {source}")
+        final_message += f"\nSource: {source}"
 
-    return "\n".join(lines)
+    return final_message
 
 # ================== VALIDATION ==================
 
