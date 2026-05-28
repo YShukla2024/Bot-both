@@ -62,6 +62,7 @@ SOURCES_FILE = "sources.json"
 
 SOURCE_CHATS = [
     -1003550975849,
+    -1003923654905,
     -5246702260
 ]
 
