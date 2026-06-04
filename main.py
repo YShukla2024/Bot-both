@@ -63,7 +63,8 @@ SOURCES_FILE = "sources.json"
 SOURCE_CHATS = [
     -1003550975849,
     -1001897903474,
-    -5246702260
+    -5246702260,
+    -1001336715612
 ]
 
 TARGET_GROUP = -1003923654905
@@ -72,6 +73,15 @@ PRINT_ALL_MESSAGES = False
 SEND_TEST_ON_START = True
 
 HEARTBEAT_INTERVAL = 30 * 60
+
+# ================== BOT MODE (ACTIVE/STANDBY) ==================
+
+BOT_MODE = os.getenv("BOT_MODE", "ACTIVE").upper()
+
+if BOT_MODE not in ["ACTIVE", "STANDBY"]:
+    BOT_MODE = "ACTIVE"
+
+print(f"🤖 BOT MODE: {BOT_MODE}")
 
 # ================== SAVE / LOAD SOURCES ==================
 
@@ -104,71 +114,20 @@ async def send_heartbeat(target_entity):
 
         try:
             now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            mode_emoji = "🟢" if BOT_MODE == "ACTIVE" else "🟡"
 
             msg = (
-                f"💓 BOT ALIVE\n"
+                f"💓 BOT ALIVE ({mode_emoji} {BOT_MODE})\n"
                 f"📡 Monitoring {len(SOURCE_CHATS)} groups\n"
                 f"🕐 {now}"
             )
 
             await client.send_message(target_entity, msg)
 
-            print(f"💓 Heartbeat sent")
+            print(f"💓 Heartbeat sent ({BOT_MODE})")
 
         except Exception as e:
             print(f"❌ Heartbeat error: {e}")
-
-# ================== SIGNAL FILTER ==================
-
-def is_signal(text):
-
-    if not text:
-        return False
-
-    t = normalize_text(text).upper().strip()
-
-    # ================= BLOCKED =================
-
-    blocked_patterns = [
-        r'BALANCE\s*:',
-        r'EQUITY\s*:',
-        r'FLOATING\s*:',
-        r'STATUS\s*UPDATE',
-        r'TARGET\s*HIT',
-        r'TP\s*HIT',
-        r'SL\s*HIT',
-        r'PROFIT\s*BOOKED',
-        r'BREAK\s*EVEN',
-        r'BREAKEVEN',
-        r'LOCK\s*PROFIT',
-        r'HALF\s*PROFIT',
-        r'BOT\s*ONLINE',
-        r'PROXIMITY\s*ALERT',
-        r'SKIPPING\s*ORDER',
-    ]
-
-    for pattern in blocked_patterns:
-        if re.search(pattern, t):
-            return False
-
-    # ================= SIMPLE SIGNAL WORDS =================
-
-    signal_words = [
-        "BUY",
-        "SELL",
-        "BUY NOW",
-        "SELL NOW",
-        "GOLD",
-        "SILVER",
-        "XAUUSD",
-        "XAGUSD",
-    ]
-
-    for word in signal_words:
-        if word in t:
-            return True
-
-    return False
 
 # ================== HELPERS ==================
 
@@ -324,12 +283,105 @@ async def cmd_list(event):
         "\n".join(lines)
     )
 
+
+# ================== GROUP COMMANDS ==================
+# Allow adding/removing sources from within the target group
+
+@client.on(events.NewMessage(
+    chats=[TARGET_GROUP],
+    outgoing=True,
+    pattern=r'^/addsource\s+(-?\d+)$'
+))
+async def cmd_group_addsource(event):
+
+    global SOURCE_CHATS
+
+    chat_id = int(
+        event.pattern_match.group(1)
+    )
+
+    if chat_id in SOURCE_CHATS:
+        await event.reply(
+            f"⚠️ Already exists\n{chat_id}"
+        )
+        return
+
+    SOURCE_CHATS.append(chat_id)
+    save_sources(SOURCE_CHATS)
+
+    await event.reply(
+        f"✅ Added source: {chat_id}\n"
+        f"📡 Now monitoring: {len(SOURCE_CHATS)} groups"
+    )
+
+    print(f"✅ Added source from group: {chat_id}")
+
+
+@client.on(events.NewMessage(
+    chats=[TARGET_GROUP],
+    outgoing=True,
+    pattern=r'^/removesource\s+(-?\d+)$'
+))
+async def cmd_group_removesource(event):
+
+    global SOURCE_CHATS
+
+    chat_id = int(
+        event.pattern_match.group(1)
+    )
+
+    if chat_id not in SOURCE_CHATS:
+        await event.reply(
+            f"❌ Not found: {chat_id}"
+        )
+        return
+
+    SOURCE_CHATS.remove(chat_id)
+    save_sources(SOURCE_CHATS)
+
+    await event.reply(
+        f"✅ Removed source: {chat_id}\n"
+        f"📡 Now monitoring: {len(SOURCE_CHATS)} groups"
+    )
+
+    print(f"➖ Removed source from group: {chat_id}")
+
+
+@client.on(events.NewMessage(
+    chats=[TARGET_GROUP],
+    outgoing=True,
+    pattern=r'^/sources$'
+))
+async def cmd_group_sources(event):
+
+    if not SOURCE_CHATS:
+        await event.reply(
+            "❌ No source chats configured"
+        )
+        return
+
+    lines = [
+        f"📡 MONITORING {len(SOURCE_CHATS)} SOURCES\n"
+    ]
+
+    for i, cid in enumerate(SOURCE_CHATS, 1):
+        chat_name = await get_chat_name(cid)
+        lines.append(f"{i}. {chat_name} ({cid})")
+
+    await event.reply(
+        "\n".join(lines)
+    )
+
 # ================== MAIN HANDLER ==================
 
 @client.on(events.NewMessage)
 async def handler(event):
 
     try:
+        # Skip if in STANDBY mode
+        if BOT_MODE == "STANDBY":
+            return
+
         chat_id = event.chat_id
 
         raw_text = event.message.message or ""
@@ -357,7 +409,7 @@ async def handler(event):
 
         # RAW FALLBACK
 
-        if not data["type"] or not data["entry"]:
+        if not data["type"] or not data["entry"] or not data["tp"]:
 
             await client.send_message(
                 TARGET_GROUP,
@@ -420,8 +472,11 @@ async def main():
     if SEND_TEST_ON_START:
 
         try:
+            mode_emoji = "🟢" if BOT_MODE == "ACTIVE" else "🟡"
+            mode_text = "ACTIVE - FORWARDING ENABLED" if BOT_MODE == "ACTIVE" else "STANDBY - BACKUP MODE"
+            
             msg = (
-                "🟢 BOT STARTED\n"
+                f"{mode_emoji} BOT {mode_text}\n"
                 f"📡 Monitoring {len(SOURCE_CHATS)} groups"
             )
 

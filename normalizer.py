@@ -259,6 +259,7 @@ def parse_signal(text: str) -> dict:
         "type": None,
         "symbol": "XAUUSD",
         "entry": None,
+        "entry_range": None,  # Store the range if it exists
         "tp": [],
         "sl": None
     }
@@ -295,9 +296,24 @@ def parse_signal(text: str) -> dict:
         result["type"] = "SELL"
 
     # ================== ENTRY ==================
+    # Improved: Handle ranges first (e.g., 4499-4494), then other formats
 
+    # Try to find range format FIRST (4499-4494)
+    range_match = re.search(
+        r'([\d]+(?:\.\d+)?)\s*[-/]\s*([\d]+(?:\.\d+)?)',
+        upper
+    )
+
+    # Try to find entry from "BUY/SELL ZONE" or similar patterns
+    zone_match = re.search(
+        r'\b(?:BUY|SELL)\s+(?:ZONE|RANGE|AT|NEAR)?[^0-9]*?'
+        r'([\d]+(?:\.\d+)?)',
+        upper
+    )
+
+    # Standard entry pattern
     entry_match = re.search(
-        r'\b(BUY|SELL)\s*(?:NOW|LIMIT|ZONE|NEAR)?\s*[@:\-|]?\s*'
+        r'\b(BUY|SELL)\s*(?:NOW|LIMIT|ZONE|NEAR|ABOVE|BELOW|AT)?\s*[@:\-|]?\s*'
         r'([\d]+(?:\.\d+)?)(?:\s*[-/]\s*([\d]+(?:\.\d+)?))?',
         upper
     )
@@ -307,7 +323,31 @@ def parse_signal(text: str) -> dict:
         upper
     )
 
-    if entry_match:
+    # Priority: range > zone > entry > at
+    if range_match and ('BUY' in upper or 'SELL' in upper):
+        # Use the first number as entry point for range
+        first_num = float(range_match.group(1))
+        second_num = float(range_match.group(2))
+        
+        # Store the range
+        if first_num == int(first_num) and second_num == int(second_num):
+            result["entry_range"] = f"{int(first_num)}-{int(second_num)}"
+        else:
+            result["entry_range"] = f"{first_num}-{second_num}"
+        
+        if result["type"] == "BUY":
+            entry_val = max(first_num, second_num)
+        else:
+            entry_val = min(first_num, second_num)
+        
+        # Format as integer if whole number, otherwise keep decimal
+        if entry_val == int(entry_val):
+            result["entry"] = str(int(entry_val))
+        else:
+            result["entry"] = str(entry_val)
+    elif zone_match:
+        result["entry"] = zone_match.group(1)
+    elif entry_match:
         result["entry"] = entry_match.group(2)
     elif at_match:
         result["entry"] = at_match.group(1)
@@ -333,7 +373,7 @@ def parse_signal(text: str) -> dict:
     # ================== SL ==================
 
     sl_match = re.search(
-        r'\b(?:SL|STOPLOSS|STOP\s*LOSS)\b[^0-9]{0,40}?([\d]+(?:\.\d+)?)',
+        r'\b(?:SL|STOPLOSS|STOP\s*LOSS|BREAK)\b[^0-9]{0,40}?([\d]+(?:\.\d+)?)',
         upper
     )
 
@@ -362,6 +402,7 @@ def format_signal(
     ).upper()
 
     entry = data.get("entry")
+    entry_range = data.get("entry_range")  # Get the range if it exists
 
     sl = data.get("sl")
 
@@ -399,8 +440,11 @@ def format_signal(
         if sl else "N/A"
     )
 
+    # Use range if available, otherwise use entry
+    display_price = entry_range if entry_range else (entry or 'N/A')
+
     final_message = (
-        f"{direction} {symbol} {entry or 'N/A'}"
+        f"{direction} {symbol} {display_price}"
         f"{formatted_tp}"
         f"\nSL: {sl_str}"
     )
@@ -420,9 +464,51 @@ def is_valid_signal(data: dict) -> bool:
         and data["tp"]
     )
 
-# ================== SIGNAL DETECTION (DIRECTION ONLY) ==================
+# ================== SIGNAL DETECTION ==================
+# Single definition - imported by main.py
+
 def is_signal(text):
+
     if not text:
-        return bool(text and text.strip())
         return False
-    return True
+
+    t = normalize_text(text).upper().strip()
+
+    blocked_patterns = [
+        r'BALANCE\s*:',
+        r'EQUITY\s*:',
+        r'FLOATING\s*:',
+        r'STATUS\s*UPDATE',
+        r'TARGET\s*HIT',
+        r'TP\s*HIT',
+        r'SL\s*HIT',
+        r'PROFIT\s*BOOKED',
+        r'BREAK\s*EVEN',
+        r'BREAKEVEN',
+        r'LOCK\s*PROFIT',
+        r'HALF\s*PROFIT',
+        r'BOT\s*ONLINE',
+        r'PROXIMITY\s*ALERT',
+        r'SKIPPING\s*ORDER',
+    ]
+
+    for pattern in blocked_patterns:
+        if re.search(pattern, t):
+            return False
+
+    signal_words = [
+        "BUY",
+        "SELL",
+        "BUY NOW",
+        "SELL NOW",
+        "GOLD",
+        "SILVER",
+        "XAUUSD",
+        "XAGUSD",
+    ]
+
+    for word in signal_words:
+        if word in t:
+            return True
+
+    return False

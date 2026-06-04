@@ -1,18 +1,26 @@
+import asyncio
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from dotenv import load_dotenv
-import os   
+import os
 
-import asyncio
 load_dotenv()
 
-
-api_id = os.getenv('API_ID')
-api_hash = os.getenv('API_HASH')
+api_id = int(os.getenv("API_ID") or 0)
+api_hash = os.getenv("API_HASH")
+phone = os.getenv("PHONE")
 
 async def main():
-    async with TelegramClient(StringSession(), api_id, api_hash) as client:
-        print(client.session.save())
+    client = TelegramClient(StringSession(), api_id, api_hash)
+    await client.connect()
+    
+    await client.send_code_request(phone)
+    code = input("Enter the code you received: ").strip()
+    
+    await client.sign_in(phone, code)
+    
+    print("SESSION STRING:")
+    print(client.session.save())
+    await client.disconnect()
 
-if __name__ == "__main__":
-    asyncio.run(main())
+asyncio.run(main())
