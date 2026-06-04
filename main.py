@@ -165,6 +165,37 @@ async def debug_logger(event):
     except Exception as e:
         print("❌ Debug error:", e)
 
+# ================== STATISTICS ==================
+
+STATS_FILE = "bot_stats.json"
+
+def load_stats():
+    if not os.path.exists(STATS_FILE):
+        return {
+            "signals": 0,
+            "tp_hits": 0,
+            "sl_hits": 0,
+            "tp_pips": 0.0,
+            "sl_pips": 0.0,
+            "balance": 0.0
+        }
+    try:
+        with open(STATS_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {
+            "signals": 0,
+            "tp_hits": 0,
+            "sl_hits": 0,
+            "tp_pips": 0.0,
+            "sl_pips": 0.0,
+            "balance": 0.0
+        }
+
+def save_stats(stats):
+    with open(STATS_FILE, "w") as f:
+        json.dump(stats, f, indent=2)
+
 # ================== COMMANDS ==================
 
 @client.on(events.NewMessage(
@@ -371,6 +402,139 @@ async def cmd_group_sources(event):
     await event.reply(
         "\n".join(lines)
     )
+
+# ================== STATISTICS COMMANDS ==================
+
+@client.on(events.NewMessage(
+    outgoing=True,
+    pattern=r'^/stats$'
+))
+async def cmd_stats(event):
+    stats = load_stats()
+    
+    win_count = stats.get("tp_hits", 0)
+    loss_count = stats.get("sl_hits", 0)
+    total = win_count + loss_count
+    win_rate = (win_count / total * 100) if total > 0 else 0
+    
+    msg = (
+        f"📊 FULL DASHBOARD\n"
+        f"{'='*40}\n"
+        f"📈 Total Signals: {stats.get('signals', 0)}\n"
+        f"💰 Balance: ${stats.get('balance', 0):,.2f}\n"
+        f"{'='*40}\n"
+        f"✅ TP Hits: {win_count}\n"
+        f"   Pips Gained: {stats.get('tp_pips', 0):,.2f}\n"
+        f"❌ SL Hits: {loss_count}\n"
+        f"   Pips Lost: {stats.get('sl_pips', 0):,.2f}\n"
+        f"{'='*40}\n"
+        f"📊 Win Rate: {win_rate:.2f}%\n"
+        f"📊 Loss Rate: {100-win_rate:.2f}%\n"
+    )
+    
+    await event.reply(msg)
+
+
+@client.on(events.NewMessage(
+    outgoing=True,
+    pattern=r'^/signals$'
+))
+async def cmd_signals(event):
+    stats = load_stats()
+    
+    msg = (
+        f"📡 SIGNALS RECEIVED\n"
+        f"{'='*40}\n"
+        f"Total: {stats.get('signals', 0)}\n"
+    )
+    
+    await event.reply(msg)
+
+
+@client.on(events.NewMessage(
+    outgoing=True,
+    pattern=r'^/balance$'
+))
+async def cmd_balance(event):
+    stats = load_stats()
+    balance = stats.get('balance', 0)
+    
+    msg = (
+        f"💰 ACCOUNT BALANCE\n"
+        f"{'='*40}\n"
+        f"Balance: ${balance:,.2f}\n"
+    )
+    
+    await event.reply(msg)
+
+
+@client.on(events.NewMessage(
+    outgoing=True,
+    pattern=r'^/tp$'
+))
+async def cmd_tp(event):
+    stats = load_stats()
+    
+    tp_hits = stats.get("tp_hits", 0)
+    tp_pips = stats.get("tp_pips", 0)
+    
+    msg = (
+        f"✅ TARGET PRICE HITS\n"
+        f"{'='*40}\n"
+        f"TP Hits: {tp_hits}\n"
+        f"Pips Gained: {tp_pips:,.2f}\n"
+    )
+    
+    await event.reply(msg)
+
+
+@client.on(events.NewMessage(
+    outgoing=True,
+    pattern=r'^/sl$'
+))
+async def cmd_sl(event):
+    stats = load_stats()
+    
+    sl_hits = stats.get("sl_hits", 0)
+    sl_pips = stats.get("sl_pips", 0)
+    
+    msg = (
+        f"❌ STOP LOSS HITS\n"
+        f"{'='*40}\n"
+        f"SL Hits: {sl_hits}\n"
+        f"Pips Lost: {sl_pips:,.2f}\n"
+    )
+    
+    await event.reply(msg)
+
+
+@client.on(events.NewMessage(
+    outgoing=True,
+    pattern=r'^/ratio$'
+))
+async def cmd_ratio(event):
+    stats = load_stats()
+    
+    win_count = stats.get("tp_hits", 0)
+    loss_count = stats.get("sl_hits", 0)
+    total = win_count + loss_count
+    
+    if total == 0:
+        win_rate = 0
+        loss_rate = 0
+    else:
+        win_rate = (win_count / total * 100)
+        loss_rate = (loss_count / total * 100)
+    
+    msg = (
+        f"📊 WIN / LOSS RATIO\n"
+        f"{'='*40}\n"
+        f"Wins: {win_count} ({win_rate:.2f}%)\n"
+        f"Losses: {loss_count} ({loss_rate:.2f}%)\n"
+        f"Total Trades: {total}\n"
+    )
+    
+    await event.reply(msg)
 
 # ================== MAIN HANDLER ==================
 
