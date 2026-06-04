@@ -406,7 +406,6 @@ async def cmd_group_sources(event):
 # ================== STATISTICS COMMANDS ==================
 
 @client.on(events.NewMessage(
-    outgoing=True,
     pattern=r'^/stats$'
 ))
 async def cmd_stats(event):
@@ -436,7 +435,6 @@ async def cmd_stats(event):
 
 
 @client.on(events.NewMessage(
-    outgoing=True,
     pattern=r'^/signals$'
 ))
 async def cmd_signals(event):
@@ -452,7 +450,6 @@ async def cmd_signals(event):
 
 
 @client.on(events.NewMessage(
-    outgoing=True,
     pattern=r'^/balance$'
 ))
 async def cmd_balance(event):
@@ -469,7 +466,6 @@ async def cmd_balance(event):
 
 
 @client.on(events.NewMessage(
-    outgoing=True,
     pattern=r'^/tp$'
 ))
 async def cmd_tp(event):
@@ -489,7 +485,6 @@ async def cmd_tp(event):
 
 
 @client.on(events.NewMessage(
-    outgoing=True,
     pattern=r'^/sl$'
 ))
 async def cmd_sl(event):
@@ -509,7 +504,6 @@ async def cmd_sl(event):
 
 
 @client.on(events.NewMessage(
-    outgoing=True,
     pattern=r'^/ratio$'
 ))
 async def cmd_ratio(event):
@@ -580,6 +574,15 @@ async def handler(event):
                 text
             )
 
+            # ================== UPDATE STATS ==================
+            try:
+                stats = load_stats()
+                stats["signals"] += 1
+                save_stats(stats)
+                print(f"📊 Stats updated: {stats['signals']} signals")
+            except Exception as e:
+                print(f"⚠️ Stats update failed: {e}")
+
             print(
                 f"✅ Raw forwarded from {chat_id}"
             )
@@ -597,6 +600,15 @@ async def handler(event):
             TARGET_GROUP,
             output
         )
+
+        # ================== UPDATE STATS ==================
+        try:
+            stats = load_stats()
+            stats["signals"] += 1
+            save_stats(stats)
+            print(f"📊 Stats updated: {stats['signals']} signals")
+        except Exception as e:
+            print(f"⚠️ Stats update failed: {e}")
 
         print(
             f"✅ Clean forwarded from {chat_id}"
