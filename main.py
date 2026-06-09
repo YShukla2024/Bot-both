@@ -2,7 +2,7 @@
 # ================== SIGNAL FORWARDER BOT ==================
 # Telegram Signal Forwarding Bot with Dynamic Source Management
 # Features: Auto-parse signals, dynamic sources, statistics, heartbeat
-# Version: 2.3 (Fixed /addsource - Works for Any User)
+# Version: 2.4 (Enhanced Debug Logging)
 
 import asyncio
 loop = asyncio.new_event_loop()
@@ -96,9 +96,10 @@ DEFAULT_SOURCE_CHATS = [
     -1001421473967
 ]
 
-PRINT_ALL_MESSAGES = False
+PRINT_ALL_MESSAGES = True  # ← ALWAYS ON for debugging
 SEND_TEST_ON_START = True
 HEARTBEAT_INTERVAL = 30 * 60
+ENHANCED_DEBUG = True  # ← NEW: Enhanced debug logging
 
 # BOT MODE (ACTIVE/STANDBY)
 BOT_MODE = os.getenv("BOT_MODE", "ACTIVE").upper()
@@ -504,6 +505,8 @@ async def handler(event):
     try:
         # Skip if in STANDBY mode
         if BOT_MODE == "STANDBY":
+            if ENHANCED_DEBUG:
+                print(f"\n⏸️  STANDBY MODE - Message skipped")
             return
 
         chat_id = event.chat_id
@@ -516,40 +519,111 @@ async def handler(event):
         if raw_text.startswith("/"):
             return
 
+        # ================== ENHANCED DEBUG INFO ==================
+        if ENHANCED_DEBUG:
+            print("\n" + "="*70)
+            print("🔍 ENHANCED DEBUG - MESSAGE RECEIVED")
+            print("="*70)
+            print(f"📨 Chat ID: {chat_id}")
+            print(f"📝 Message: {raw_text[:100]}")
+
         # Reload sources from file to stay in sync
         global SOURCE_CHATS
         SOURCE_CHATS = load_sources()
 
+        # ================== SOURCE CHECK WITH DEBUG ==================
+        is_source = chat_id in SOURCE_CHATS
+
+        if ENHANCED_DEBUG:
+            print(f"\n📋 SOURCE CHECK:")
+            print(f"   Current monitored sources: {SOURCE_CHATS}")
+            print(f"   Is '{chat_id}' in sources? {'✅ YES' if is_source else '❌ NO'}")
+            print(f"   Total sources: {len(SOURCE_CHATS)}")
+
         # Check if from monitored source
-        if chat_id not in SOURCE_CHATS:
-            if PRINT_ALL_MESSAGES:
-                print(f"⏭️ Skipping {chat_id} - not in SOURCE_CHATS")
+        if not is_source:
+            if ENHANCED_DEBUG:
+                print(f"\n⚠️  SOURCE NOT MONITORED")
+                print(f"   Chat ID {chat_id} is NOT in SOURCE_CHATS")
+                print(f"   This message will be SKIPPED")
+                print(f"   To add this source, use in target group:")
+                print(f"   👉 /addsource {chat_id}")
+            print(f"\n❌ SKIPPED: Group {chat_id} not in SOURCE_CHATS")
+            print(f"   Monitored groups: {SOURCE_CHATS}")
+            print(f"   👉 Solution: Add this group with /addsource {chat_id}")
             return
+
+        if ENHANCED_DEBUG:
+            print(f"\n✅ SOURCE IS MONITORED - Processing message")
 
         # Normalize text
         text = normalize_text(raw_text)
 
+        if ENHANCED_DEBUG:
+            print(f"\n📊 TEXT NORMALIZATION:")
+            print(f"   Original:   {raw_text[:80]}")
+            print(f"   Normalized: {text[:80]}")
+
+        print(f"\n📨 MESSAGE FROM {chat_id}")
+        print(f"   Raw:        {raw_text[:80]}")
+        print(f"   Normalized: {text[:80]}")
+
+        # ================== SIGNAL DETECTION WITH DEBUG ==================
+        from normalizer import is_signal
+        
+        is_sig = is_signal(text)
+
+        if ENHANCED_DEBUG:
+            print(f"\n🔎 SIGNAL DETECTION:")
+            print(f"   is_signal() returned: {is_sig}")
+            if is_sig:
+                print(f"   ✅ This IS a signal")
+            else:
+                print(f"   ❌ This is NOT a signal")
+                print(f"   Reasons: No BUY/SELL or TP/SL detected")
+
         # Check if it's a signal
-        if not is_signal(text):
-            if PRINT_ALL_MESSAGES:
-                print(f"⏭️ Not detected as signal: {text[:50]}")
+        if not is_sig:
+            print(f"   ❌ NOT A SIGNAL (no BUY/SELL or TP/SL detected)")
             return
+
+        print(f"   ✅ Detected as signal")
 
         # Parse signal
         data = parse_signal(text)
         chat_name = await get_chat_name(chat_id)
 
-        if PRINT_ALL_MESSAGES:
-            print(f"\n📨 Message from {chat_id} ({chat_name}):")
-            print(f"   Type: {data['type']}")
-            print(f"   Entry: {data['entry']}")
-            print(f"   TP: {data['tp']}")
-            print(f"   SL: {data['sl']}")
+        print(f"\n   📊 PARSED DATA:")
+        print(f"      Type:   {data['type']}")
+        print(f"      Symbol: {data['symbol']}")
+        print(f"      Entry:  {data['entry']}")
+        print(f"      TP:     {data['tp']}")
+        print(f"      SL:     {data['sl']}")
+
+        if ENHANCED_DEBUG:
+            print(f"\n📈 PARSING RESULTS:")
+            print(f"   Type: {data['type']} {'✅' if data['type'] else '❌'}")
+            print(f"   Symbol: {data['symbol']} {'✅' if data['symbol'] else '❌'}")
+            print(f"   Entry: {data['entry']} {'✅' if data['entry'] else '❌'}")
+            print(f"   TP List: {data['tp']} {'✅' if data['tp'] else '❌'}")
+            print(f"   SL: {data['sl']} {'✅' if data['sl'] else '❌'}")
 
         # Raw fallback if missing data
         if not data["type"] or not data["entry"] or not data["tp"]:
+            print(f"\n   ⚠️ INCOMPLETE - Forwarding as RAW")
+            print(f"      Missing: ", end="")
+            missing = []
+            if not data["type"]: missing.append("TYPE")
+            if not data["entry"]: missing.append("ENTRY")
+            if not data["tp"]: missing.append("TP")
+            print(", ".join(missing))
+            
+            if ENHANCED_DEBUG:
+                print(f"\n⚠️  INCOMPLETE SIGNAL - Using Raw Forward")
+                print(f"   Missing fields: {', '.join(missing)}")
+
             await client.send_message(TARGET_GROUP, text)
-            print(f"✅ Raw forwarded from {chat_id}")
+            print(f"   ✅ Raw forwarded\n")
             
             # Update stats
             try:
@@ -557,53 +631,82 @@ async def handler(event):
                 stats["signals"] += 1
                 save_stats(stats)
             except Exception as e:
-                print(f"⚠️ Stats error: {e}")
+                print(f"   ⚠️ Stats error: {e}")
             return
 
         # Format and send signal
         output = format_signal(data, source=chat_name)
 
         try:
+            if ENHANCED_DEBUG:
+                print(f"\n📤 FORMATTING & SENDING:")
+                print(f"   Source: {chat_name}")
+                print(f"   Target: {TARGET_GROUP}")
+
             await client.send_message(TARGET_GROUP, output)
-            print(f"✅ Clean forwarded from {chat_id}")
+            print(f"\n   📤 FORMATTED OUTPUT:")
+            for line in output.split('\n'):
+                print(f"      {line}")
+            print(f"\n   ✅ FORWARDED TO TARGET GROUP\n")
             
+            if ENHANCED_DEBUG:
+                print(f"✅ SUCCESSFULLY SENT TO TARGET GROUP")
+                print(f"   Message: {output.split(chr(10))[0]}...")
+
             # Update stats
             try:
                 stats = load_stats()
                 stats["signals"] += 1
                 save_stats(stats)
             except Exception as e:
-                print(f"⚠️ Stats error: {e}")
+                print(f"   ⚠️ Stats error: {e}")
 
         except Exception as send_error:
-            print(f"❌ Failed to send: {send_error}")
+            print(f"\n   ❌ FAILED TO SEND: {send_error}\n")
+            if ENHANCED_DEBUG:
+                print(f"❌ SEND ERROR: {send_error}")
+
+        if ENHANCED_DEBUG:
+            print("="*70 + "\n")
 
     except Exception as e:
-        print(f"❌ Handler error: {e}")
+        print(f"\n❌ HANDLER ERROR: {e}\n")
+        if ENHANCED_DEBUG:
+            import traceback
+            print("Full traceback:")
+            print(traceback.format_exc())
 
 # ================== MAIN ==================
 
 async def main():
     """Main bot startup"""
     await client.start()
-    print("\n✅ TELETHON CONNECTED")
+    print("\n" + "="*70)
+    print("✅ TELETHON CONNECTED")
+    print("="*70)
 
     # Load and display sources
     global SOURCE_CHATS
     SOURCE_CHATS = load_sources()
 
-    print("🔄 Loading sources...")
-    for chat_id in SOURCE_CHATS:
+    print(f"\n🔄 Loading {len(SOURCE_CHATS)} source groups...")
+    failed = 0
+    for i, chat_id in enumerate(SOURCE_CHATS, 1):
         try:
-            await client.get_entity(chat_id)
-            print(f"   ✅ {chat_id}")
+            entity = await client.get_entity(chat_id)
+            name = entity.title or str(chat_id)
+            print(f"   {i}. ✅ {name} ({chat_id})")
         except Exception as e:
-            print(f"   ❌ {chat_id} - {e}")
+            print(f"   {i}. ❌ {chat_id} - Error: {str(e)[:40]}")
+            failed += 1
+
+    if failed > 0:
+        print(f"\n⚠️  Warning: {failed} group(s) failed to load (may not have access)")
 
     # Get target group
     try:
         target_entity = await client.get_entity(TARGET_GROUP)
-        print(f"\n🎯 Target group: {target_entity.title}")
+        print(f"\n🎯 Target group: {target_entity.title} ({TARGET_GROUP})")
     except Exception as e:
         print(f"\n❌ Target group error: {e}")
         return
@@ -617,7 +720,8 @@ async def main():
             msg = (
                 f"{mode_emoji} BOT {mode_text}\n"
                 f"📡 Monitoring {len(SOURCE_CHATS)} groups\n"
-                f"⚡ Dynamic source management enabled (use /addsource in group)"
+                f"⚡ Dynamic source management enabled\n"
+                f"🐛 Enhanced Debug logging: ON"
             )
 
             await client.send_message(target_entity, msg)
@@ -629,7 +733,11 @@ async def main():
     # Start heartbeat
     asyncio.ensure_future(send_heartbeat(target_entity))
     print("💓 Heartbeat started")
-    print("🚀 Listening for signals...\n")
+    print("\n" + "="*70)
+    print("🚀 LISTENING FOR SIGNALS")
+    print("="*70)
+    print("\nEnhanced debug logging enabled - all message routing shown")
+    print("To disable debug mode: Set ENHANCED_DEBUG = False in code\n")
 
     # Run until disconnected
     try:
@@ -655,9 +763,9 @@ async def main():
 if __name__ == "__main__":
     try:
         print("\n" + "="*60)
-        print("  🚀 SIGNAL FORWARDER BOT v2.3")
+        print("  🚀 SIGNAL FORWARDER BOT v2.4")
         print("  📡 Dynamic Source Management (No Restart Needed!)")
-        print("  ✅ Fixed /addsource - Works for Any User!")
+        print("  ✅ Enhanced Debug Logging for Troubleshooting")
         print("="*60 + "\n")
         
         loop.run_until_complete(main())
