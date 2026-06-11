@@ -23,7 +23,6 @@ from normalizer import (
     parse_signal,
     format_signal,
     is_valid_signal,
-    is_signal,
 )
 
 # ================== FLASK KEEP ALIVE ==================
@@ -100,6 +99,7 @@ DEFAULT_SOURCE_CHATS = [
 PRINT_ALL_MESSAGES = True  # ← ALWAYS ON for debugging
 SEND_TEST_ON_START = True
 HEARTBEAT_INTERVAL = 30 * 60
+ENHANCED_DEBUG = True  # ← NEW: Enhanced debug logging
 
 # BOT MODE (ACTIVE/STANDBY)
 BOT_MODE = os.getenv("BOT_MODE", "ACTIVE").upper()
@@ -181,10 +181,10 @@ async def debug_logger(event):
 
     try:
         chat = await event.get_chat()
-        print("\n📩 NEW MESSAGE (DEBUG)")
+        print("\n📩 NEW MESSAGE")
         print(f"   CHAT: {getattr(chat, 'title', 'Unknown')}")
         print(f"   ID: {event.chat_id}")
-        print(f"   TEXT: {event.message.message[:100] if event.message.message else 'No text'}")
+        print(f"   TEXT: {event.message.message}")
         print("-" * 60)
     except Exception as e:
         print(f"❌ Debug error: {e}")
@@ -505,6 +505,8 @@ async def handler(event):
     try:
         # Skip if in STANDBY mode
         if BOT_MODE == "STANDBY":
+            if ENHANCED_DEBUG:
+                print(f"\n⏸️  STANDBY MODE - Message skipped")
             return
 
         chat_id = event.chat_id
@@ -517,37 +519,71 @@ async def handler(event):
         if raw_text.startswith("/"):
             return
 
-        # ================== ENHANCED DEBUG ==================
-        print(f"\n{'='*70}")
-        print(f"🔍 MESSAGE RECEIVED - DETAILED DEBUG")
-        print(f"{'='*70}")
-        print(f"Chat ID: {chat_id}")
-        
+        # ================== ENHANCED DEBUG INFO ==================
+        if ENHANCED_DEBUG:
+            print("\n" + "="*70)
+            print("🔍 ENHANCED DEBUG - MESSAGE RECEIVED")
+            print("="*70)
+            print(f"📨 Chat ID: {chat_id}")
+            print(f"📝 Message: {raw_text[:100]}")
+
         # Reload sources from file to stay in sync
         global SOURCE_CHATS
         SOURCE_CHATS = load_sources()
-        
-        print(f"Current SOURCE_CHATS: {SOURCE_CHATS}")
-        print(f"Is in sources? {chat_id in SOURCE_CHATS}")
-        print(f"Raw text (first 100 chars): {raw_text[:100]}")
-        print(f"{'='*70}\n")
+
+        # ================== SOURCE CHECK WITH DEBUG ==================
+        is_source = chat_id in SOURCE_CHATS
+
+        if ENHANCED_DEBUG:
+            print(f"\n📋 SOURCE CHECK:")
+            print(f"   Current monitored sources: {SOURCE_CHATS}")
+            print(f"   Is '{chat_id}' in sources? {'✅ YES' if is_source else '❌ NO'}")
+            print(f"   Total sources: {len(SOURCE_CHATS)}")
 
         # Check if from monitored source
-        if chat_id not in SOURCE_CHATS:
+        if not is_source:
+            if ENHANCED_DEBUG:
+                print(f"\n⚠️  SOURCE NOT MONITORED")
+                print(f"   Chat ID {chat_id} is NOT in SOURCE_CHATS")
+                print(f"   This message will be SKIPPED")
+                print(f"   To add this source, use in target group:")
+                print(f"   👉 /addsource {chat_id}")
             print(f"\n❌ SKIPPED: Group {chat_id} not in SOURCE_CHATS")
             print(f"   Monitored groups: {SOURCE_CHATS}")
-            print(f"   👉 Solution: Add this group with /addsource {chat_id}\n")
+            print(f"   👉 Solution: Add this group with /addsource {chat_id}")
             return
+
+        if ENHANCED_DEBUG:
+            print(f"\n✅ SOURCE IS MONITORED - Processing message")
 
         # Normalize text
         text = normalize_text(raw_text)
+
+        if ENHANCED_DEBUG:
+            print(f"\n📊 TEXT NORMALIZATION:")
+            print(f"   Original:   {raw_text[:80]}")
+            print(f"   Normalized: {text[:80]}")
 
         print(f"\n📨 MESSAGE FROM {chat_id}")
         print(f"   Raw:        {raw_text[:80]}")
         print(f"   Normalized: {text[:80]}")
 
+        # ================== SIGNAL DETECTION WITH DEBUG ==================
+        from normalizer import is_signal
+        
+        is_sig = is_signal(text)
+
+        if ENHANCED_DEBUG:
+            print(f"\n🔎 SIGNAL DETECTION:")
+            print(f"   is_signal() returned: {is_sig}")
+            if is_sig:
+                print(f"   ✅ This IS a signal")
+            else:
+                print(f"   ❌ This is NOT a signal")
+                print(f"   Reasons: No BUY/SELL or TP/SL detected")
+
         # Check if it's a signal
-        if not is_signal(text):
+        if not is_sig:
             print(f"   ❌ NOT A SIGNAL (no BUY/SELL or TP/SL detected)")
             return
 
@@ -564,6 +600,14 @@ async def handler(event):
         print(f"      TP:     {data['tp']}")
         print(f"      SL:     {data['sl']}")
 
+        if ENHANCED_DEBUG:
+            print(f"\n📈 PARSING RESULTS:")
+            print(f"   Type: {data['type']} {'✅' if data['type'] else '❌'}")
+            print(f"   Symbol: {data['symbol']} {'✅' if data['symbol'] else '❌'}")
+            print(f"   Entry: {data['entry']} {'✅' if data['entry'] else '❌'}")
+            print(f"   TP List: {data['tp']} {'✅' if data['tp'] else '❌'}")
+            print(f"   SL: {data['sl']} {'✅' if data['sl'] else '❌'}")
+
         # Raw fallback if missing data
         if not data["type"] or not data["entry"] or not data["tp"]:
             print(f"\n   ⚠️ INCOMPLETE - Forwarding as RAW")
@@ -574,6 +618,10 @@ async def handler(event):
             if not data["tp"]: missing.append("TP")
             print(", ".join(missing))
             
+            if ENHANCED_DEBUG:
+                print(f"\n⚠️  INCOMPLETE SIGNAL - Using Raw Forward")
+                print(f"   Missing fields: {', '.join(missing)}")
+
             await client.send_message(TARGET_GROUP, text)
             print(f"   ✅ Raw forwarded\n")
             
@@ -590,12 +638,21 @@ async def handler(event):
         output = format_signal(data, source=chat_name)
 
         try:
+            if ENHANCED_DEBUG:
+                print(f"\n📤 FORMATTING & SENDING:")
+                print(f"   Source: {chat_name}")
+                print(f"   Target: {TARGET_GROUP}")
+
             await client.send_message(TARGET_GROUP, output)
             print(f"\n   📤 FORMATTED OUTPUT:")
             for line in output.split('\n'):
                 print(f"      {line}")
             print(f"\n   ✅ FORWARDED TO TARGET GROUP\n")
             
+            if ENHANCED_DEBUG:
+                print(f"✅ SUCCESSFULLY SENT TO TARGET GROUP")
+                print(f"   Message: {output.split(chr(10))[0]}...")
+
             # Update stats
             try:
                 stats = load_stats()
@@ -606,9 +663,18 @@ async def handler(event):
 
         except Exception as send_error:
             print(f"\n   ❌ FAILED TO SEND: {send_error}\n")
+            if ENHANCED_DEBUG:
+                print(f"❌ SEND ERROR: {send_error}")
+
+        if ENHANCED_DEBUG:
+            print("="*70 + "\n")
 
     except Exception as e:
         print(f"\n❌ HANDLER ERROR: {e}\n")
+        if ENHANCED_DEBUG:
+            import traceback
+            print("Full traceback:")
+            print(traceback.format_exc())
 
 # ================== MAIN ==================
 
@@ -655,7 +721,7 @@ async def main():
                 f"{mode_emoji} BOT {mode_text}\n"
                 f"📡 Monitoring {len(SOURCE_CHATS)} groups\n"
                 f"⚡ Dynamic source management enabled\n"
-                f"🐛 Debug logging: ON"
+                f"🐛 Enhanced Debug logging: ON"
             )
 
             await client.send_message(target_entity, msg)
@@ -670,8 +736,8 @@ async def main():
     print("\n" + "="*70)
     print("🚀 LISTENING FOR SIGNALS")
     print("="*70)
-    print("\nDebug logging enabled - all messages will be shown")
-    print("To disable debug mode: Set PRINT_ALL_MESSAGES = False in code\n")
+    print("\nEnhanced debug logging enabled - all message routing shown")
+    print("To disable debug mode: Set ENHANCED_DEBUG = False in code\n")
 
     # Run until disconnected
     try:
@@ -699,7 +765,7 @@ if __name__ == "__main__":
         print("\n" + "="*60)
         print("  🚀 SIGNAL FORWARDER BOT v2.4")
         print("  📡 Dynamic Source Management (No Restart Needed!)")
-        print("  ✅ Enhanced Debug Logging")
+        print("  ✅ Enhanced Debug Logging for Troubleshooting")
         print("="*60 + "\n")
         
         loop.run_until_complete(main())
