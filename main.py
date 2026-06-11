@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # ================== SIGNAL FORWARDER BOT ==================
 # Telegram Signal Forwarding Bot with Dynamic Source Management
-# Features: Auto-parse signals, dynamic sources, statistics, heartbeat
-# Version: 2.4 (Enhanced Debug Logging)
+# Features: Auto-parse signals, dynamic sources, statistics, heartbeat, IMAGE FORWARDING
+# Version: 2.5 (Image Forwarding Support + Enhanced Debug)
 
 import asyncio
 loop = asyncio.new_event_loop()
@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 from flask import Flask
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
+from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument
 from dotenv import load_dotenv
 
 from normalizer import (
@@ -99,7 +100,18 @@ DEFAULT_SOURCE_CHATS = [
 PRINT_ALL_MESSAGES = True  # ← ALWAYS ON for debugging
 SEND_TEST_ON_START = True
 HEARTBEAT_INTERVAL = 30 * 60
-ENHANCED_DEBUG = True  # ← NEW: Enhanced debug logging
+ENHANCED_DEBUG = True  # ← Enhanced debug logging
+
+# ================== IMAGE FORWARDING CONFIG ==================
+ENABLE_IMAGE_FORWARDING = True  # ← Toggle image forwarding ON/OFF
+MAX_IMAGE_SIZE_MB = 50  # Maximum image size to forward (MB)
+SUPPORTED_IMAGE_TYPES = [
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'image/gif',
+    'image/bmp'
+]
 
 # BOT MODE (ACTIVE/STANDBY)
 BOT_MODE = os.getenv("BOT_MODE", "ACTIVE").upper()
@@ -107,6 +119,7 @@ if BOT_MODE not in ["ACTIVE", "STANDBY"]:
     BOT_MODE = "ACTIVE"
 
 print(f"🤖 BOT MODE: {BOT_MODE}")
+print(f"🖼️  IMAGE FORWARDING: {'✅ ENABLED' if ENABLE_IMAGE_FORWARDING else '❌ DISABLED'}")
 
 # ================== SAVE / LOAD SOURCES ==================
 
@@ -148,10 +161,12 @@ async def send_heartbeat(target_entity):
         try:
             now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
             mode_emoji = "🟢" if BOT_MODE == "ACTIVE" else "🟡"
+            image_status = "🖼️ Images: ✅" if ENABLE_IMAGE_FORWARDING else "🖼️ Images: ❌"
 
             msg = (
                 f"💓 BOT ALIVE ({mode_emoji} {BOT_MODE})\n"
                 f"📡 Monitoring {len(SOURCE_CHATS)} groups\n"
+                f"{image_status}\n"
                 f"🕐 {now}"
             )
 
@@ -171,6 +186,20 @@ async def get_chat_name(chat_id):
     except Exception:
         return str(chat_id)
 
+async def get_file_size(media):
+    """Get file size in MB from media object"""
+    try:
+        if hasattr(media, 'sizes'):
+            size_bytes = media.sizes[-1] if media.sizes else 0
+        elif hasattr(media, 'size'):
+            size_bytes = media.size
+        else:
+            return None
+        
+        return size_bytes / (1024 * 1024)  # Convert to MB
+    except:
+        return None
+
 # ================== DEBUG LOGGER ==================
 
 @client.on(events.NewMessage)
@@ -181,10 +210,16 @@ async def debug_logger(event):
 
     try:
         chat = await event.get_chat()
+        media_info = ""
+        
+        if event.message.media:
+            media_type = type(event.message.media).__name__
+            media_info = f"\n   MEDIA: {media_type}"
+        
         print("\n📩 NEW MESSAGE")
         print(f"   CHAT: {getattr(chat, 'title', 'Unknown')}")
         print(f"   ID: {event.chat_id}")
-        print(f"   TEXT: {event.message.message}")
+        print(f"   TEXT: {event.message.message or '(no text)'}{media_info}")
         print("-" * 60)
     except Exception as e:
         print(f"❌ Debug error: {e}")
@@ -198,6 +233,7 @@ def load_stats():
     if not os.path.exists(STATS_FILE):
         return {
             "signals": 0,
+            "images": 0,
             "tp_hits": 0,
             "sl_hits": 0,
             "tp_pips": 0.0,
@@ -206,10 +242,15 @@ def load_stats():
         }
     try:
         with open(STATS_FILE, "r") as f:
-            return json.load(f)
+            stats = json.load(f)
+            # Ensure 'images' key exists for backward compatibility
+            if "images" not in stats:
+                stats["images"] = 0
+            return stats
     except:
         return {
             "signals": 0,
+            "images": 0,
             "tp_hits": 0,
             "sl_hits": 0,
             "tp_pips": 0.0,
@@ -223,7 +264,6 @@ def save_stats(stats):
         json.dump(stats, f, indent=2)
 
 # ================== COMMANDS - SOURCE MANAGEMENT (USER ACCOUNT) ==================
-# These use outgoing=True and only work if YOU are the bot account
 
 @client.on(events.NewMessage(
     outgoing=True,
@@ -314,10 +354,12 @@ async def cmd_status(event):
 
     mode_emoji = "🟢" if BOT_MODE == "ACTIVE" else "🟡"
     mode_text = "ACTIVE - FORWARDING" if BOT_MODE == "ACTIVE" else "STANDBY - BACKUP"
+    image_status = "🖼️ Images: ✅" if ENABLE_IMAGE_FORWARDING else "🖼️ Images: ❌"
 
     await event.reply(
         f"{mode_emoji} Bot {mode_text}\n"
         f"📡 Sources: {len(SOURCE_CHATS)}\n"
+        f"{image_status}\n"
         f"🎯 Target: {TARGET_GROUP}"
     )
 
@@ -337,7 +379,6 @@ async def cmd_test(event):
     await event.reply("✅ Test signal sent")
 
 # ================== COMMANDS - GROUP MANAGEMENT (ANY USER) ==================
-# These work for ANY user in the target group - REMOVED outgoing=True
 
 @client.on(events.NewMessage(
     chats=[TARGET_GROUP],
@@ -432,6 +473,7 @@ async def cmd_stats(event):
         f"📊 FULL DASHBOARD\n"
         f"{'='*40}\n"
         f"📈 Total Signals: {stats.get('signals', 0)}\n"
+        f"🖼️ Images Forwarded: {stats.get('images', 0)}\n"
         f"💰 Balance: ${stats.get('balance', 0):,.2f}\n"
         f"{'='*40}\n"
         f"✅ TP Hits: {win_count}\n"
@@ -449,6 +491,12 @@ async def cmd_signals(event):
     """Show signals count"""
     stats = load_stats()
     await event.reply(f"📡 SIGNALS RECEIVED\n{'='*40}\nTotal: {stats.get('signals', 0)}\n")
+
+@client.on(events.NewMessage(pattern=r'^/images$'))
+async def cmd_images(event):
+    """Show images forwarded"""
+    stats = load_stats()
+    await event.reply(f"🖼️ IMAGES FORWARDED\n{'='*40}\nTotal: {stats.get('images', 0)}\n")
 
 @client.on(events.NewMessage(pattern=r'^/balance$'))
 async def cmd_balance(event):
@@ -497,11 +545,11 @@ async def cmd_ratio(event):
 
     await event.reply(msg)
 
-# ================== MAIN SIGNAL HANDLER ==================
+# ================== MAIN SIGNAL & IMAGE HANDLER ==================
 
 @client.on(events.NewMessage)
 async def handler(event):
-    """Main signal processing handler"""
+    """Main signal processing handler + Image forwarding"""
     try:
         # Skip if in STANDBY mode
         if BOT_MODE == "STANDBY":
@@ -511,21 +559,14 @@ async def handler(event):
 
         chat_id = event.chat_id
         raw_text = event.message.message or ""
+        has_media = event.message.media is not None
 
-        if not raw_text.strip():
+        if not raw_text.strip() and not has_media:
             return
 
         # Skip commands
         if raw_text.startswith("/"):
             return
-
-        # ================== ENHANCED DEBUG INFO ==================
-        if ENHANCED_DEBUG:
-            print("\n" + "="*70)
-            print("🔍 ENHANCED DEBUG - MESSAGE RECEIVED")
-            print("="*70)
-            print(f"📨 Chat ID: {chat_id}")
-            print(f"📝 Message: {raw_text[:100]}")
 
         # Reload sources from file to stay in sync
         global SOURCE_CHATS
@@ -534,7 +575,19 @@ async def handler(event):
         # ================== SOURCE CHECK WITH DEBUG ==================
         is_source = chat_id in SOURCE_CHATS
 
-        if ENHANCED_DEBUG:
+        if ENHANCED_DEBUG and (raw_text.strip() or has_media):
+            print("\n" + "="*70)
+            if has_media:
+                print("🔍 ENHANCED DEBUG - MEDIA MESSAGE RECEIVED")
+            else:
+                print("🔍 ENHANCED DEBUG - MESSAGE RECEIVED")
+            print("="*70)
+            print(f"📨 Chat ID: {chat_id}")
+            print(f"📝 Message: {raw_text[:100] if raw_text else '(no text)'}")
+            if has_media:
+                print(f"🖼️  Media Type: {type(event.message.media).__name__}")
+
+        if ENHANCED_DEBUG and (raw_text.strip() or has_media):
             print(f"\n📋 SOURCE CHECK:")
             print(f"   Current monitored sources: {SOURCE_CHATS}")
             print(f"   Is '{chat_id}' in sources? {'✅ YES' if is_source else '❌ NO'}")
@@ -542,19 +595,31 @@ async def handler(event):
 
         # Check if from monitored source
         if not is_source:
-            if ENHANCED_DEBUG:
+            if ENHANCED_DEBUG and (raw_text.strip() or has_media):
                 print(f"\n⚠️  SOURCE NOT MONITORED")
                 print(f"   Chat ID {chat_id} is NOT in SOURCE_CHATS")
                 print(f"   This message will be SKIPPED")
                 print(f"   To add this source, use in target group:")
                 print(f"   👉 /addsource {chat_id}")
-            print(f"\n❌ SKIPPED: Group {chat_id} not in SOURCE_CHATS")
-            print(f"   Monitored groups: {SOURCE_CHATS}")
-            print(f"   👉 Solution: Add this group with /addsource {chat_id}")
+                print("="*70 + "\n")
+            if raw_text.strip():
+                print(f"\n❌ SKIPPED: Group {chat_id} not in SOURCE_CHATS")
+                print(f"   Monitored groups: {SOURCE_CHATS}")
             return
 
-        if ENHANCED_DEBUG:
+        if ENHANCED_DEBUG and (raw_text.strip() or has_media):
             print(f"\n✅ SOURCE IS MONITORED - Processing message")
+
+        # ================== IMAGE FORWARDING ==================
+        if has_media and ENABLE_IMAGE_FORWARDING:
+            await handle_image_forwarding(event, chat_id)
+            if ENHANCED_DEBUG:
+                print("="*70 + "\n")
+            return
+
+        # ================== TEXT SIGNAL PROCESSING ==================
+        if not raw_text.strip():
+            return
 
         # Normalize text
         text = normalize_text(raw_text)
@@ -568,7 +633,7 @@ async def handler(event):
         print(f"   Raw:        {raw_text[:80]}")
         print(f"   Normalized: {text[:80]}")
 
-        # ================== SIGNAL DETECTION WITH DEBUG ==================
+        # Check if it's a signal
         from normalizer import is_signal
         
         is_sig = is_signal(text)
@@ -580,9 +645,7 @@ async def handler(event):
                 print(f"   ✅ This IS a signal")
             else:
                 print(f"   ❌ This is NOT a signal")
-                print(f"   Reasons: No BUY/SELL or TP/SL detected")
 
-        # Check if it's a signal
         if not is_sig:
             print(f"   ❌ NOT A SIGNAL (no BUY/SELL or TP/SL detected)")
             return
@@ -611,12 +674,11 @@ async def handler(event):
         # Raw fallback if missing data
         if not data["type"] or not data["entry"] or not data["tp"]:
             print(f"\n   ⚠️ INCOMPLETE - Forwarding as RAW")
-            print(f"      Missing: ", end="")
             missing = []
             if not data["type"]: missing.append("TYPE")
             if not data["entry"]: missing.append("ENTRY")
             if not data["tp"]: missing.append("TP")
-            print(", ".join(missing))
+            print(f"      Missing: {', '.join(missing)}")
             
             if ENHANCED_DEBUG:
                 print(f"\n⚠️  INCOMPLETE SIGNAL - Using Raw Forward")
@@ -625,7 +687,6 @@ async def handler(event):
             await client.send_message(TARGET_GROUP, text)
             print(f"   ✅ Raw forwarded\n")
             
-            # Update stats
             try:
                 stats = load_stats()
                 stats["signals"] += 1
@@ -653,7 +714,6 @@ async def handler(event):
                 print(f"✅ SUCCESSFULLY SENT TO TARGET GROUP")
                 print(f"   Message: {output.split(chr(10))[0]}...")
 
-            # Update stats
             try:
                 stats = load_stats()
                 stats["signals"] += 1
@@ -671,6 +731,92 @@ async def handler(event):
 
     except Exception as e:
         print(f"\n❌ HANDLER ERROR: {e}\n")
+        if ENHANCED_DEBUG:
+            import traceback
+            print("Full traceback:")
+            print(traceback.format_exc())
+
+# ================== IMAGE FORWARDING HANDLER ==================
+
+async def handle_image_forwarding(event, chat_id):
+    """
+    Handle image/photo forwarding from monitored sources
+    Forwards images directly to target group with validation
+    """
+    try:
+        if ENHANCED_DEBUG:
+            print(f"\n🖼️  IMAGE FORWARDING HANDLER TRIGGERED")
+
+        # Check media type
+        media = event.message.media
+        media_type = type(media).__name__
+
+        if ENHANCED_DEBUG:
+            print(f"   Media Type: {media_type}")
+
+        # Only handle photos and images
+        if not isinstance(media, (MessageMediaPhoto, MessageMediaDocument)):
+            if ENHANCED_DEBUG:
+                print(f"   ❌ Unsupported media type: {media_type}")
+                print(f"   Supported: Photos, Images")
+            return
+
+        # Get file size
+        file_size_mb = await get_file_size(media)
+        
+        if ENHANCED_DEBUG:
+            if file_size_mb:
+                print(f"   File Size: {file_size_mb:.2f} MB")
+            print(f"   Max Allowed: {MAX_IMAGE_SIZE_MB} MB")
+
+        # Check file size
+        if file_size_mb and file_size_mb > MAX_IMAGE_SIZE_MB:
+            if ENHANCED_DEBUG:
+                print(f"   ❌ File too large - SKIPPED")
+                print(f"   {file_size_mb:.2f} MB > {MAX_IMAGE_SIZE_MB} MB limit")
+            return
+
+        # Prepare caption if text exists
+        caption = event.message.message or ""
+        
+        if ENHANCED_DEBUG:
+            if caption:
+                print(f"   Caption: {caption[:50]}")
+            else:
+                print(f"   Caption: (no text)")
+
+        # Download and forward image
+        source_name = await get_chat_name(chat_id)
+        
+        if ENHANCED_DEBUG:
+            print(f"\n📤 FORWARDING IMAGE:")
+            print(f"   From: {source_name} ({chat_id})")
+            print(f"   To: {TARGET_GROUP}")
+
+        # Forward the message
+        await client.forward_messages(
+            entity=TARGET_GROUP,
+            messages=event.message.id,
+            from_peer=event.chat_id
+        )
+
+        if ENHANCED_DEBUG:
+            print(f"   ✅ IMAGE FORWARDED SUCCESSFULLY")
+
+        # Update statistics
+        try:
+            stats = load_stats()
+            stats["images"] = stats.get("images", 0) + 1
+            save_stats(stats)
+            if ENHANCED_DEBUG:
+                print(f"   📊 Stats updated: {stats['images']} total images")
+        except Exception as e:
+            print(f"   ⚠️ Stats error: {e}")
+
+        print(f"\n   ✅ IMAGE PROCESSED\n")
+
+    except Exception as e:
+        print(f"\n   ❌ IMAGE FORWARDING ERROR: {e}\n")
         if ENHANCED_DEBUG:
             import traceback
             print("Full traceback:")
@@ -716,10 +862,12 @@ async def main():
         try:
             mode_emoji = "🟢" if BOT_MODE == "ACTIVE" else "🟡"
             mode_text = "ACTIVE - FORWARDING" if BOT_MODE == "ACTIVE" else "STANDBY - BACKUP"
+            image_status = "🖼️ Images: ✅" if ENABLE_IMAGE_FORWARDING else "🖼️ Images: ❌"
 
             msg = (
                 f"{mode_emoji} BOT {mode_text}\n"
                 f"📡 Monitoring {len(SOURCE_CHATS)} groups\n"
+                f"{image_status}\n"
                 f"⚡ Dynamic source management enabled\n"
                 f"🐛 Enhanced Debug logging: ON"
             )
@@ -734,10 +882,11 @@ async def main():
     asyncio.ensure_future(send_heartbeat(target_entity))
     print("💓 Heartbeat started")
     print("\n" + "="*70)
-    print("🚀 LISTENING FOR SIGNALS")
+    print("🚀 LISTENING FOR SIGNALS & IMAGES")
     print("="*70)
-    print("\nEnhanced debug logging enabled - all message routing shown")
-    print("To disable debug mode: Set ENHANCED_DEBUG = False in code\n")
+    print("\nEnhanced debug logging enabled")
+    print(f"Image forwarding: {'✅ ENABLED' if ENABLE_IMAGE_FORWARDING else '❌ DISABLED'}")
+    print("To toggle: Set ENABLE_IMAGE_FORWARDING = True/False in code\n")
 
     # Run until disconnected
     try:
@@ -763,9 +912,10 @@ async def main():
 if __name__ == "__main__":
     try:
         print("\n" + "="*60)
-        print("  🚀 SIGNAL FORWARDER BOT v2.4")
+        print("  🚀 SIGNAL FORWARDER BOT v2.5")
         print("  📡 Dynamic Source Management (No Restart Needed!)")
-        print("  ✅ Enhanced Debug Logging for Troubleshooting")
+        print("  🖼️  Image Forwarding Support (NEW!)")
+        print("  ✅ Enhanced Debug Logging")
         print("="*60 + "\n")
         
         loop.run_until_complete(main())
