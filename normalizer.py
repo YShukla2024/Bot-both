@@ -71,7 +71,7 @@ def normalize_text(text: str) -> str:
 
     # TP.
     text = _re.sub(
-        r'\b(TP\s*\d*)\.\s*',
+        r'\bTP\d*\s*[:\-]?\s*(\d+(?:\.\d+)?)',
         r'\1 ',
         text,
         flags=_re.IGNORECASE
@@ -259,7 +259,7 @@ def parse_signal(text: str) -> dict:
         "type": None,
         "symbol": "XAUUSD",
         "entry": None,
-        "entry_range": None,  # Store the range if it exists
+        "entry_range": None,
         "tp": [],
         "sl": None
     }
@@ -296,9 +296,9 @@ def parse_signal(text: str) -> dict:
         result["type"] = "SELL"
 
     # ================== ENTRY ==================
-    # Improved: Handle ranges first (e.g., 4499-4494), then other formats
+    # Handle ranges (e.g., 4316-4324), zones, and standard formats
 
-    # Try to find range format FIRST (4499-4494)
+    # Try to find range format FIRST (4316-4324)
     range_match = re.search(
         r'([\d]+(?:\.\d+)?)\s*[-/]\s*([\d]+(?:\.\d+)?)',
         upper
@@ -325,50 +325,86 @@ def parse_signal(text: str) -> dict:
 
     # Priority: range > zone > entry > at
     if range_match and ('BUY' in upper or 'SELL' in upper):
-        # Use the first number as entry point for range
         first_num = float(range_match.group(1))
         second_num = float(range_match.group(2))
         
-        # Store the range
+        # Store the range as string
         if first_num == int(first_num) and second_num == int(second_num):
             result["entry_range"] = f"{int(first_num)}-{int(second_num)}"
         else:
             result["entry_range"] = f"{first_num}-{second_num}"
         
-        if result["type"] == "BUY":
-            entry_val = max(first_num, second_num)
+        # Use first number as entry (actual entry point)
+        if first_num == int(first_num):
+            result["entry"] = str(int(first_num))
         else:
-            entry_val = min(first_num, second_num)
-        
-        # Format as integer if whole number, otherwise keep decimal
-        if entry_val == int(entry_val):
-            result["entry"] = str(int(entry_val))
-        else:
-            result["entry"] = str(entry_val)
+            result["entry"] = str(first_num)
+            
     elif zone_match:
         result["entry"] = zone_match.group(1)
     elif entry_match:
         result["entry"] = entry_match.group(2)
     elif at_match:
         result["entry"] = at_match.group(1)
+        
+   
 
     # ================== TP ==================
 
-    tp_matches = re.findall(
-        r'TP[¹²³123]?\s*[:\-]?\s*(\d+(?:\.\d+)?)',
+    result["tp"] = []
+
+    # TP1 4315
+    # TP1: 4315
+    # TP 4315
+    for match in re.finditer(
+        r'\bTP(?:\d+)?\s*[:\-]?\s*(\d+(?:\.\d+)?)',
+        text,
+        re.IGNORECASE
+    ):
+        result["tp"].append(float(match.group(1)))
+
+    # TARGETS: 4327 - 4334 - 4340 - 4350
+    targets_match = re.search(
+        r'TARGETS?\s*:\s*([^\n\r]+)',
         text,
         re.IGNORECASE
     )
 
-    unique_tps = []
-    for tp in tp_matches:
-        if tp not in unique_tps:
-            unique_tps.append(tp)
+    if targets_match:
+        nums = re.findall(
+            r'\d+(?:\.\d+)?',
+            targets_match.group(1)
+        )
 
-    result["tp"] = [
-        float(tp)
-        for tp in unique_tps
-    ]
+        for num in nums:
+            result["tp"].append(float(num))
+
+    # OPEN (4322/4325/4330/4336)
+    open_match = re.search(
+        r'OPEN\s*\((.*?)\)',
+        text,
+        re.IGNORECASE
+    )
+
+    if open_match:
+        nums = re.findall(
+            r'\d+(?:\.\d+)?',
+            open_match.group(1)
+        )
+
+        for num in nums:
+            result["tp"].append(float(num))
+
+    # Remove duplicates while keeping order
+    seen = set()
+    clean_tp = []
+
+    for tp in result["tp"]:
+        if tp not in seen:
+            seen.add(tp)
+            clean_tp.append(tp)
+
+    result["tp"] = clean_tp
 
     # ================== SL ==================
 
@@ -402,25 +438,25 @@ def format_signal(
     ).upper()
 
     entry = data.get("entry")
-    entry_range = data.get("entry_range")  # Get the range if it exists
+    entry_range = data.get("entry_range")
 
     sl = data.get("sl")
+    print("PARSED DATA:", data)
 
     tp_list = data.get("tp") or []
 
     # Auto SL
     if not sl and entry:
-
         try:
             sl = calculate_default_sl(
                 symbol,
                 float(entry),
                 direction
             )
-
         except:
             sl = None
 
+    # Format TPs
     formatted_tp = ""
 
     if tp_list:
@@ -465,7 +501,6 @@ def is_valid_signal(data: dict) -> bool:
     )
 
 # ================== SIGNAL DETECTION ==================
-# Single definition - imported by main.py
 
 def is_signal(text):
 
