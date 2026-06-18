@@ -10,6 +10,27 @@ def normalize_text(text: str) -> str:
     import re as _re
     import unicodedata as _ucd
 
+    # ==========================================
+    # ARABIC TRANSLATION LAYER
+    # Translate Arabic terms to English keywords
+    # ==========================================
+    arabic_map = {
+        "بيع": "SELL",
+        "شراء": "BUY",
+        "اشتر": "BUY",
+        "الذهب": "GOLD",
+        "وقف الخسارة": "SL",
+        "الهدف الأول": "TP1",
+        "الهدف الثاني": "TP2",
+        "الهدف الثالث": "TP3",
+        "الهدف الرابع": "TP4",
+        "الهدف الخامس": "TP5",
+        "الهدف": "TP",
+        "بسعر": "",  # Remove "at price" so numbers connect directly to the asset
+    }
+    for ar, en in arabic_map.items():
+        text = text.replace(ar, en)
+
     # Remove telegram links
     text = _re.sub(
         r'\[([^\]]+)\]\([^\)]+\)',
@@ -69,15 +90,7 @@ def normalize_text(text: str) -> str:
         flags=_re.IGNORECASE
     )
 
-    # TP.
-    text = _re.sub(
-        r'\bTP\d*\s*[:\-]?\s*(\d+(?:\.\d+)?)',
-        r'\1 ',
-        text,
-        flags=_re.IGNORECASE
-    )
-
-    # SL.
+    # SL. (Keeps SL but removes the dot)
     text = _re.sub(
         r'\b(SL)\.\s*',
         r'\1 ',
@@ -101,17 +114,21 @@ def normalize_text(text: str) -> str:
 
     # 4693-95 → 4693-4695
     def expand_short_range(m):
-
         full = m.group(1)
         short = m.group(2)
-
         prefix = full[:len(full)-len(short)]
-
         return full + '-' + prefix + short
 
     text = _re.sub(
         r'(\b\d{4,})-(\d{2}\b)',
         expand_short_range,
+        text
+    )
+    
+    # Convert naked numbered targets (e.g., "  1: 4327") to standard "TP1 4327"
+    text = _re.sub(
+        r'(?m)^[ \t]*([1-9])[ \t]*[:\-\.)][ \t]*(\d+(?:\.\d+)?)[ \t]*$',
+        r'TP\1 \2',
         text
     )
 
@@ -122,7 +139,7 @@ def normalize_text(text: str) -> str:
         for ch in text
     )
 
-    # Add spaces
+    # Add spaces (e.g., "4347SL" -> "4347 SL")
     text = _re.sub(
         r'(\d)(SL|TP|BUY|SELL)',
         r'\1 \2',
@@ -130,12 +147,7 @@ def normalize_text(text: str) -> str:
         flags=_re.IGNORECASE
     )
 
-    text = _re.sub(
-        r'(SL|TP)(\d)',
-        r'\1 \2',
-        text,
-        flags=_re.IGNORECASE
-    )
+    # (SL|TP)(\d) block completely removed as requested to fix TP1 destruction
 
     return (
         text.replace("¹", "1")
@@ -347,8 +359,6 @@ def parse_signal(text: str) -> dict:
     elif at_match:
         result["entry"] = at_match.group(1)
         
-   
-
     # ================== TP ==================
 
     result["tp"] = []
@@ -357,7 +367,7 @@ def parse_signal(text: str) -> dict:
     # TP1: 4315
     # TP 4315
     for match in re.finditer(
-        r'\bTP(?:\d+)?\s*[:\-]?\s*(\d+(?:\.\d+)?)',
+        r'\bTP\d*\s*[:\-]?\s*(\d+(?:\.\d+)?)',
         text,
         re.IGNORECASE
     ):
@@ -404,6 +414,7 @@ def parse_signal(text: str) -> dict:
             seen.add(tp)
             clean_tp.append(tp)
 
+    print("TP DEBUG:", clean_tp)
     result["tp"] = clean_tp
 
     # ================== SL ==================
@@ -540,6 +551,9 @@ def is_signal(text):
         "SILVER",
         "XAUUSD",
         "XAGUSD",
+        "الذهب", 
+        "بيع", 
+        "شراء",
     ]
 
     for word in signal_words:
