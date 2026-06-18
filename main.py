@@ -85,7 +85,7 @@ client = TelegramClient(
 
 # ================== CONFIG ==================
 
-SOURCES_FILE = "sources.json"
+SOURCES_FILE = "home/sources.json"
 
 # Default source groups
 DEFAULT_SOURCE_CHATS = [
@@ -93,7 +93,10 @@ DEFAULT_SOURCE_CHATS = [
     -1001897903474,
     -5246702260,
     -1001336715612,
-    -1001421473967
+    -1001421473967,
+    -1003901917774,
+    -1003923654905,
+    -1003940312262
 ]
 
 PRINT_ALL_MESSAGES = True  # ← ALWAYS ON for debugging
