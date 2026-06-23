@@ -147,8 +147,6 @@ def normalize_text(text: str) -> str:
         flags=_re.IGNORECASE
     )
 
-    # (SL|TP)(\d) block completely removed as requested to fix TP1 destruction
-
     return (
         text.replace("¹", "1")
         .replace("²", "2")
@@ -264,7 +262,6 @@ def calculate_default_sl(
 def parse_signal(text: str) -> dict:
 
     text = normalize_text(text)
-
     upper = text.upper()
 
     result = {
@@ -279,51 +276,43 @@ def parse_signal(text: str) -> dict:
     # ================== SYMBOL ==================
 
     symbol_map = [
-
         (["XAUUSD", "XAU", "GOLD"], "XAUUSD"),
         (["XAGUSD", "XAG", "SILVER"], "XAGUSD"),
-
         (["EURUSD", "EUR/USD"], "EURUSD"),
         (["GBPUSD", "GBP/USD"], "GBPUSD"),
         (["USDJPY", "USD/JPY"], "USDJPY"),
-
         (["BTCUSD", "BTC", "BITCOIN"], "BTCUSD"),
         (["ETHUSD", "ETH", "ETHEREUM"], "ETHUSD"),
-
         (["NAS100", "NASDAQ"], "NAS100"),
     ]
 
     for keywords, sym in symbol_map:
-
         if any(k in upper for k in keywords):
             result["symbol"] = sym
             break
 
     # ================== TYPE ==================
 
-    if re.search(r'\bBUY\b', upper):
+    if re.search(r'\b(BUY|LONG|SHORT)\b', upper, re.IGNORECASE):
         result["type"] = "BUY"
-
     elif re.search(r'\bSELL\b', upper):
         result["type"] = "SELL"
 
     # ================== ENTRY ==================
-    # Handle ranges (e.g., 4316-4324), zones, and standard formats
-
-    # Try to find range format FIRST (4316-4324)
+    
+    # 1. Strict Entry Zone Range (e.g., ENTRY ZONE: 4188-4180)
     range_match = re.search(
-        r'([\d]+(?:\.\d+)?)\s*[-/]\s*([\d]+(?:\.\d+)?)',
+        r'\b(?:ENTRY\s*ZONE|BUY\s*ZONE|SELL\s*ZONE|ENTRY)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*[-/]\s*(\d+(?:\.\d+)?)',
         upper
     )
 
-    # Try to find entry from "BUY/SELL ZONE" or similar patterns
-    zone_match = re.search(
-        r'\b(?:BUY|SELL)\s+(?:ZONE|RANGE|AT|NEAR)?[^0-9]*?'
-        r'([\d]+(?:\.\d+)?)',
+    # 2. Strict Entry Zone Single (e.g., ENTRY ZONE: 4195)
+    entry_zone_match = re.search(
+        r'\b(?:ENTRY\s*ZONE|BUY\s*ZONE|SELL\s*ZONE|ENTRY)\s*[:\-]?\s*(\d+(?:\.\d+)?)',
         upper
     )
 
-    # Standard entry pattern
+    # 3. Standard entry pattern fallback
     entry_match = re.search(
         r'\b(BUY|SELL)\s*(?:NOW|LIMIT|ZONE|NEAR|ABOVE|BELOW|AT)?\s*[@:\-|]?\s*'
         r'([\d]+(?:\.\d+)?)(?:\s*[-/]\s*([\d]+(?:\.\d+)?))?',
@@ -335,27 +324,29 @@ def parse_signal(text: str) -> dict:
         upper
     )
 
-    # Priority: range > zone > entry > at
-    if range_match and ('BUY' in upper or 'SELL' in upper):
+    # Priority routing to avoid gobbling Targets
+    if range_match:
         first_num = float(range_match.group(1))
         second_num = float(range_match.group(2))
         
-        # Store the range as string
         if first_num == int(first_num) and second_num == int(second_num):
             result["entry_range"] = f"{int(first_num)}-{int(second_num)}"
         else:
             result["entry_range"] = f"{first_num}-{second_num}"
         
-        # Use first number as entry (actual entry point)
         if first_num == int(first_num):
             result["entry"] = str(int(first_num))
         else:
             result["entry"] = str(first_num)
             
-    elif zone_match:
-        result["entry"] = zone_match.group(1)
+    elif entry_zone_match:
+        result["entry"] = entry_zone_match.group(1)
+        
     elif entry_match:
+        if entry_match.group(3): # Catch range attached directly to BUY/SELL
+            result["entry_range"] = f"{entry_match.group(2)}-{entry_match.group(3)}"
         result["entry"] = entry_match.group(2)
+        
     elif at_match:
         result["entry"] = at_match.group(1)
         
@@ -363,9 +354,6 @@ def parse_signal(text: str) -> dict:
 
     result["tp"] = []
 
-    # TP1 4315
-    # TP1: 4315
-    # TP 4315
     for match in re.finditer(
         r'\bTP\d*\s*[:\-]?\s*(\d+(?:\.\d+)?)',
         text,
@@ -373,7 +361,6 @@ def parse_signal(text: str) -> dict:
     ):
         result["tp"].append(float(match.group(1)))
 
-    # TARGETS: 4327 - 4334 - 4340 - 4350
     targets_match = re.search(
         r'TARGETS?\s*:\s*([^\n\r]+)',
         text,
@@ -385,11 +372,9 @@ def parse_signal(text: str) -> dict:
             r'\d+(?:\.\d+)?',
             targets_match.group(1)
         )
-
         for num in nums:
             result["tp"].append(float(num))
 
-    # OPEN (4322/4325/4330/4336)
     open_match = re.search(
         r'OPEN\s*\((.*?)\)',
         text,
@@ -401,7 +386,6 @@ def parse_signal(text: str) -> dict:
             r'\d+(?:\.\d+)?',
             open_match.group(1)
         )
-
         for num in nums:
             result["tp"].append(float(num))
 
@@ -414,7 +398,6 @@ def parse_signal(text: str) -> dict:
             seen.add(tp)
             clean_tp.append(tp)
 
-    print("TP DEBUG:", clean_tp)
     result["tp"] = clean_tp
 
     # ================== SL ==================
@@ -425,9 +408,7 @@ def parse_signal(text: str) -> dict:
     )
 
     if sl_match:
-        result["sl"] = float(
-            sl_match.group(1)
-        )
+        result["sl"] = float(sl_match.group(1))
 
     return result
 
@@ -450,10 +431,7 @@ def format_signal(
 
     entry = data.get("entry")
     entry_range = data.get("entry_range")
-
     sl = data.get("sl")
-    print("PARSED DATA:", data)
-
     tp_list = data.get("tp") or []
 
     # Auto SL
@@ -487,7 +465,6 @@ def format_signal(
         if sl else "N/A"
     )
 
-    # Use range if available, otherwise use entry
     display_price = entry_range if entry_range else (entry or 'N/A')
 
     final_message = (
@@ -554,6 +531,8 @@ def is_signal(text):
         "الذهب", 
         "بيع", 
         "شراء",
+        "LONG",
+        "SHORT",
     ]
 
     for word in signal_words:

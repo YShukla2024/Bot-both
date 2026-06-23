@@ -2,7 +2,7 @@
 # ================== SIGNAL FORWARDER BOT ==================
 # Telegram Signal Forwarding Bot with Dynamic Source Management
 # Features: Auto-parse signals, dynamic sources, statistics, heartbeat
-# Version: 2.4 (Enhanced Debug Logging)
+# Version: 2.5 (Source Name on Raw Fallbacks)
 
 import asyncio
 loop = asyncio.new_event_loop()
@@ -85,18 +85,10 @@ client = TelegramClient(
 
 # ================== CONFIG ==================
 
-SOURCES_FILE = "home/sources.json"
+SOURCES_FILE = "/home/sources.json"
 
 # Default source groups
 DEFAULT_SOURCE_CHATS = [
-    -1003550975849,
-    -1001897903474,
-    -5246702260,
-    -1001336715612,
-    -1001421473967,
-    -1003901917774,
-    -1003923654905,
-    -1003940312262
 ]
 
 PRINT_ALL_MESSAGES = True  # ← ALWAYS ON for debugging
@@ -561,6 +553,9 @@ async def handler(event):
 
         # Normalize text
         text = normalize_text(raw_text)
+        
+        # Get chat name right away so it is available for fallback routes
+        chat_name = await get_chat_name(chat_id)
 
         if ENHANCED_DEBUG:
             print(f"\n📊 TEXT NORMALIZATION:")
@@ -594,7 +589,6 @@ async def handler(event):
 
         # Parse signal
         data = parse_signal(text)
-        chat_name = await get_chat_name(chat_id)
 
         print(f"\n   📊 PARSED DATA:")
         print(f"      Type:   {data['type']}")
@@ -625,8 +619,11 @@ async def handler(event):
                 print(f"\n⚠️  INCOMPLETE SIGNAL - Using Raw Forward")
                 print(f"   Missing fields: {', '.join(missing)}")
 
-            await client.send_message(TARGET_GROUP, text)
-            print(f"   ✅ Raw forwarded\n")
+            # >> FIX APPLIED HERE: Add the chat name to the raw fallback text <<
+            raw_fallback_msg = f"{text}\n\nSource: {chat_name}"
+            
+            await client.send_message(TARGET_GROUP, raw_fallback_msg)
+            print(f"   ✅ Raw forwarded with source\n")
             
             # Update stats
             try:
@@ -766,7 +763,7 @@ async def main():
 if __name__ == "__main__":
     try:
         print("\n" + "="*60)
-        print("  🚀 SIGNAL FORWARDER BOT v2.4")
+        print("  🚀 SIGNAL FORWARDER BOT v2.5")
         print("  📡 Dynamic Source Management (No Restart Needed!)")
         print("  ✅ Enhanced Debug Logging for Troubleshooting")
         print("="*60 + "\n")

@@ -4,3 +4,4 @@ __pycache__/
 sources.json
 *.session
 sessio_string.py
+bot_stats.json
