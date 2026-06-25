@@ -23,6 +23,7 @@ from normalizer import (
     parse_signal,
     format_signal,
     is_valid_signal,
+    is_signal
 )
 
 # ================== FLASK KEEP ALIVE ==================
@@ -85,7 +86,7 @@ client = TelegramClient(
 
 # ================== CONFIG ==================
 
-SOURCES_FILE = "/home/sources.json"
+SOURCES_FILE = "sources.json"
 
 # Default source groups
 DEFAULT_SOURCE_CHATS = [

@@ -766,6 +766,17 @@ def is_signal(text):
         return False
 
     t = normalize_text(text).upper().strip()
+    
+    clean = re.sub(r'\s+', ' ', t).strip()
+
+    if re.fullmatch(
+        r"(?:I'M|IM|I AM|WE ARE)?\s*"
+        r"(BUY|SELL|BUYING|SELLING)\s*"
+        r"(?:GOLD|XAU|XAUUSD)?\s*"
+        r"NOW",
+        clean,
+    ):
+        return True
 
     for compiled_pattern in _BLOCKED_RE:
         if compiled_pattern.search(t):
