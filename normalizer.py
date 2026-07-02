@@ -796,11 +796,22 @@ def is_signal(text):
         "شراء",
         "LONG",
         "SHORT",
+        "SELL BELOW",
+        "BUY BELOW",
+        "SELL ABOVE",
+        "BUY"
     ]
 
     has_keyword = any(word in t for word in signal_words)
     if not has_keyword:
         return False
+
+    # Accept short "Above/Below" signals (e.g. "SELL BELOW @4070", trailing emoji ok)
+    if re.fullmatch(
+        r"(BUY|SELL)\s+(ABOVE|BELOW)\s*@?\s*\d+(?:\.\d+)?\W*",
+        clean,
+    ):
+        return True
 
     # Confidence gate: a bare keyword hit is no longer enough on its own.
     # Messages need real signal substance (direction + asset + an actual
