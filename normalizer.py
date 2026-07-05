@@ -730,16 +730,17 @@ def signal_confidence(text: str) -> int:
     # Entry (30) -- an actual price level tied to a zone/entry/@ keyword,
     # OR a bare price sitting directly next to BUY/SELL (e.g. "BUY XAUUSD 4500")
     has_entry = bool(
-        re.search(
-            r'\b(?:ENTRY\s*ZONE|BUY\s*ZONE|SELL\s*ZONE|ZONE|ENTRY)\s*[:\-=]?\s*\d+(?:\.\d+)?',
-            upper
+            re.search(
+                r'\b(?:ENTRY\s*ZONE|BUY\s*ZONE|SELL\s*ZONE|ZONE|ENTRY|PRICE)\s*[:\-=]?\s*\d+(?:\.\d+)?',
+                upper
+            )
+            or re.search(r'@\s*\d+(?:\.\d+)?', upper)
+            or re.search(
+                r'\b(?:BUY|SELL)\b(?:\s+\w+){0,2}\s*[@:\-|]?\s*\d{2,}(?:\.\d+)?',
+                upper
+            )
         )
-        or re.search(r'@\s*\d+(?:\.\d+)?', upper)
-        or re.search(
-            r'\b(?:BUY|SELL)\b(?:\s+\w+){0,2}\s*[@:\-|]?\s*\d{2,}(?:\.\d+)?',
-            upper
-        )
-    )
+        
     if has_entry:
         score += 30
 
