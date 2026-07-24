@@ -800,7 +800,9 @@ def is_signal(text):
         "SELL BELOW",
         "BUY BELOW",
         "SELL ABOVE",
-        "BUY"
+        "BUY",
+        "CLOSE",
+        "CTC"
     ]
 
     has_keyword = any(word in t for word in signal_words)
@@ -811,6 +813,14 @@ def is_signal(text):
     if re.fullmatch(
         r"(BUY|SELL)\s+(ABOVE|BELOW)\s*@?\s*\d+(?:\.\d+)?\W*",
         clean,
+    ):
+        return True
+    
+    # Accept close/CTC instructions
+    if re.fullmatch(
+        r"(?:CLOSE|CTC)(?:\s+(?:ALL|NOW))?(?:\s+(?:BUY|SELL|XAUUSD|GOLD))?\W*",
+        clean,
+        re.IGNORECASE
     ):
         return True
 
