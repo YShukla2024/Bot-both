@@ -800,6 +800,12 @@ def is_signal(text):
         "SELL BELOW",
         "BUY BELOW",
         "SELL ABOVE",
+        "SELL ABOVE GOLD",
+        "SELL BELOW GOLD",
+        "BUY ABOVE GOLD",
+        "BUY BELOW GOLD",
+        "BUY NOW GOLD",
+        "SELL NOW GOLD",
         "BUY",
         "CLOSE",
         "CTC"
@@ -822,6 +828,21 @@ def is_signal(text):
         clean,
         re.IGNORECASE
     ):
+        return True
+    
+    BUY_SELL_RE = re.compile(
+    r"""
+    (?:I'M|IM|I\ AM|WE\ ARE)?\s*
+    (BUY|SELL|BUYING|SELLING)
+    (?:\s+(?:NOW|ABOVE|BELOW))?
+    (?:\s+(?:GOLD|XAU|XAUUSD))?
+    (?:\s+NOW)?
+    \W*$
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+    if BUY_SELL_RE.fullmatch(clean):
         return True
 
     # Confidence gate: a bare keyword hit is no longer enough on its own.

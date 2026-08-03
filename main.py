@@ -90,7 +90,7 @@ SOURCES_FILE ="/home/sources.json"
 
 # Default source groups
 DEFAULT_SOURCE_CHATS = [
-    -1003901917774
+
 ]
 
 PRINT_ALL_MESSAGES = True  # ← ALWAYS ON for debugging
