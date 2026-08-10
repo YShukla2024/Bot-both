@@ -90,7 +90,7 @@ SOURCES_FILE ="/home/sources.json"
 
 # Default source groups
 DEFAULT_SOURCE_CHATS = [
-
+    -1003901917774
 ]
 
 PRINT_ALL_MESSAGES = True  # ← ALWAYS ON for debugging
@@ -622,10 +622,10 @@ async def handler(event):
                 print(f"   Missing fields: {', '.join(missing)}")
 
             # >> FIX APPLIED HERE: Add the chat name to the raw fallback text <<
-            raw_fallback_msg = f"{text}\n\nSource: {chat_name}"
+            raw_fallback_msg = text
             
             await client.send_message(TARGET_GROUP, raw_fallback_msg)
-            print(f"   ✅ Raw forwarded with source\n")
+            print(f"   ✅ Raw forwarded\n")
             
             # Update stats
             try:
