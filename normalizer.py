@@ -823,11 +823,7 @@ def is_signal(text):
         return True
     
     # Accept close/CTC instructions
-    if re.fullmatch(
-        r"(?:CLOSE|CTC)(?:\s+(?:ALL|NOW))?(?:\s+(?:BUY|SELL|XAUUSD|GOLD))?\W*",
-        clean,
-        re.IGNORECASE
-    ):
+    if re.search(r'\b(?:CLOSE|CTC)\b', t):
         return True
     
     BUY_SELL_RE = re.compile(
